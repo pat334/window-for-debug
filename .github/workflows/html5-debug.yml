@@ -7,10 +7,6 @@ on:
         description: 'Tailscale auth key'
         required: true
         type: string
-      rdp_password:
-        description: 'RDP password cho user runneradmin'
-        required: true
-        type: string
       duration_minutes:
         description: 'Thời gian giữ session (phút, tối đa ~350)'
         required: false
@@ -22,19 +18,28 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 350
     steps:
-      - name: Enable RDP + tạo user
+      - name: Enable RDP + tạo user mywin
         shell: powershell
         run: |
+          $user = "mywin"
+          $pass = "Passw0rd!2026"
+
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-          $pass = "${{ inputs.rdp_password }}"
-          net user runneradmin "$pass" /add
-          net localgroup administrators runneradmin /add
-          net localgroup "Remote Desktop Users" runneradmin /add
+          net user $user "$pass" /add
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Tao user that bai"
+              exit 1
+          }
+
+          net localgroup administrators $user /add
+          net localgroup "Remote Desktop Users" $user /add
 
           # Tắt NLA để Guacamole (RDP mode thường) connect được
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+
+          Write-Host "User da tao: $user"
 
       - name: Connect Tailscale (hostname cố định)
         uses: tailscale/github-action@v3
@@ -48,7 +53,9 @@ jobs:
         run: |
           $ip = tailscale ip -4
           Write-Host "Tailscale IP: $ip"
-          Write-Host "RDP qua HTML5 (Guacamole): mở connection 'gha-windows-rdp' đã cấu hình sẵn"
+          Write-Host "Username: mywin"
+          Write-Host "Password: Passw0rd!2026"
+          Write-Host "RDP qua HTML5 (Guacamole): mở connection 'gha-windows-rdp' đã cấu hình sẵn, nhớ cập nhật IP moi nhat nay"
 
       - name: Keep alive
         shell: powershell
