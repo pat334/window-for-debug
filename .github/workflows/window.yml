@@ -1,0 +1,65 @@
+name: windows-rdp-tailscale-for-debug-win-app-witchout-pc
+
+on:
+  workflow_dispatch:
+    inputs:
+      ts_authkey:
+        description: 'Tailscale auth key'
+        required: true
+        type: string
+      rdp_password:
+        description: 'RDP password cho user runneradmin'
+        required: true
+        type: string
+      duration_minutes:
+        description: 'Thời gian giữ session (phút, tối đa ~350)'
+        required: false
+        default: '340'
+        type: string
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 350
+    steps:
+      - name: Enable RDP + tạo user
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+          $pass = "${{ inputs.rdp_password }}"
+          net user runneradmin "$pass" /add
+          net localgroup administrators runneradmin /add
+          net localgroup "Remote Desktop Users" runneradmin /add
+
+          # Tắt NLA nếu cần client HTML5/Guacamole không hỗ trợ NLA
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+
+      - name: Connect Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ inputs.ts_authkey }}
+          tags: tag:ci-rdp
+          hostname: gha-windows-rdp-${{ github.run_id }}
+
+      - name: In ra Tailscale IP
+        shell: powershell
+        run: |
+          tailscale ip -4
+
+      - name: Keep alive
+        shell: powershell
+        run: |
+          $minutes = [int]"${{ inputs.duration_minutes }}"
+          $timeout = (Get-Date).AddMinutes($minutes)
+          Write-Host "Session sẽ giữ tới: $timeout"
+          while ((Get-Date) -lt $timeout) {
+              Start-Sleep -Seconds 60
+          }
+
+      - name: Cleanup (đảm bảo node rời tailnet)
+        if: always()
+        shell: powershell
+        run: |
+          tailscale logout
